@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PaymentSys.Data;
+using PaymentSys.Services.Ledger;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,8 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddScoped<ILedgerPostingService, LedgerPostingService>();
 
 var app = builder.Build();
 
