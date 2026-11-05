@@ -19,6 +19,17 @@ namespace PaymentSys.Tests.Integration
         public const string ClientId = "integration-test-client";
 
         private readonly string _databaseName = $"paymentsys-integration-{Guid.NewGuid():N}";
+        private readonly int _webhookPermitLimit;
+
+        public PaymentApiFactory()
+            : this(1000)
+        {
+        }
+
+        internal PaymentApiFactory(int webhookPermitLimit)
+        {
+            _webhookPermitLimit = webhookPermitLimit;
+        }
 
         public FakePaystackClient Paystack { get; } = new();
 
@@ -36,7 +47,9 @@ namespace PaymentSys.Tests.Integration
                     ["Paystack:BaseUrl"] = "https://api.paystack.co",
                     ["Paystack:TimeoutSeconds"] = "30",
                     ["RateLimit:PermitLimit"] = "1000",
-                    ["RateLimit:WindowSeconds"] = "60"
+                    ["RateLimit:WindowSeconds"] = "60",
+                    ["RateLimit:WebhookPermitLimit"] = _webhookPermitLimit.ToString(),
+                    ["RateLimit:WebhookWindowSeconds"] = "60"
                 });
             });
 

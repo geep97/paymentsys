@@ -183,6 +183,25 @@ namespace PaymentSys.Tests.Integration
             Assert.Equal(PaymentStatus.Reversed.ToString(), updated.Status);
         }
 
+        [Fact]
+        public async Task Responses_IncludeSecurityHeaders()
+        {
+            var client = _factory.CreateClient();
+
+            var health = await client.GetAsync("/health");
+
+            Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+            Assert.Equal("nosniff", health.Headers.GetValues("X-Content-Type-Options").Single());
+            Assert.Equal("DENY", health.Headers.GetValues("X-Frame-Options").Single());
+            Assert.True(health.Headers.CacheControl?.NoStore);
+
+            var api = await client.GetAsync("/api/payments/any-reference");
+
+            Assert.Equal(HttpStatusCode.Unauthorized, api.StatusCode);
+            Assert.Equal("nosniff", api.Headers.GetValues("X-Content-Type-Options").Single());
+            Assert.True(api.Headers.CacheControl?.NoStore);
+        }
+
         private HttpClient CreateAuthorizedClient()
         {
             var client = _factory.CreateClient();

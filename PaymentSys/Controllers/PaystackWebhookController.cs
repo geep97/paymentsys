@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using PaymentSys.Contracts.Webhooks;
 using PaymentSys.Data;
@@ -14,6 +15,7 @@ namespace PaymentSys.Controllers
     [ApiController]
     [Route("api/webhooks/paystack")]
     [AllowAnonymous]
+    [EnableRateLimiting("webhooks")]
     public class PaystackWebhookController : ControllerBase
     {
         private const string ProviderName = "Paystack";
@@ -41,6 +43,7 @@ namespace PaymentSys.Controllers
         }
 
         [HttpPost]
+        [RequestSizeLimit(128 * 1024)]
         public async Task<IActionResult> Receive(CancellationToken cancellationToken)
         {
             Request.EnableBuffering();

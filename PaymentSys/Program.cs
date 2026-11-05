@@ -17,6 +17,8 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -47,25 +49,44 @@ builder.Services.AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
         _ => { });
 builder.Services.AddAuthorization();
 
-var rateLimitOptions = builder.Configuration
-    .GetSection(RateLimitOptions.SectionName)
-    .Get<RateLimitOptions>() ?? new RateLimitOptions();
+builder.Services.Configure<RateLimitOptions>(
+    builder.Configuration.GetSection(RateLimitOptions.SectionName));
 
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
     options.AddPolicy("payments", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
+    {
+        var settings = httpContext.RequestServices
+            .GetRequiredService<IOptions<RateLimitOptions>>().Value;
+
+        return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.User.Identity?.Name
                 ?? httpContext.Connection.RemoteIpAddress?.ToString()
                 ?? "anonymous",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = rateLimitOptions.PermitLimit,
-                Window = TimeSpan.FromSeconds(rateLimitOptions.WindowSeconds),
+                PermitLimit = settings.PermitLimit,
+                Window = TimeSpan.FromSeconds(settings.WindowSeconds),
                 QueueLimit = 0
-            }));
+            });
+    });
+
+    options.AddPolicy("webhooks", httpContext =>
+    {
+        var settings = httpContext.RequestServices
+            .GetRequiredService<IOptions<RateLimitOptions>>().Value;
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.WebhookPermitLimit,
+                Window = TimeSpan.FromSeconds(settings.WebhookWindowSeconds),
+                QueueLimit = 0
+            });
+    });
 });
 
 var allowedOrigins = builder.Configuration
@@ -147,6 +168,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 if (allowedOrigins.Length > 0)
 {
