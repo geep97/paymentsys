@@ -11,5 +11,9 @@ namespace PaymentSys.Services.Payments
         Task<PaymentTransaction> VerifyAsync(
             string reference,
             CancellationToken cancellationToken = default);
+
+        Task<PaymentTransaction> GetAsync(
+            string reference,
+            CancellationToken cancellationToken = default);
     }
 }
