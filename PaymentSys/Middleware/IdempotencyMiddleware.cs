@@ -60,7 +60,8 @@ namespace PaymentSys.Middleware
                 return;
             }
 
-            var endpoint = context.Request.Path.Value ?? "/";
+            var endpoint = BuildEndpoint(context);
+
             var requestHash = await ComputeRequestHashAsync(context);
 
             var existing = await idempotencyService.FindAsync(
@@ -70,9 +71,20 @@ namespace PaymentSys.Middleware
 
             if (existing is not null)
             {
-                if (existing.ExpiresAt <= DateTime.UtcNow)
+                var now = DateTime.UtcNow;
+                var timedOut = existing.Status == IdempotencyStatus.InProgress
+                    && existing.CreatedAt <= now.AddMinutes(-GetInProgressTimeout(settings));
+
+                if (existing.ExpiresAt <= now || timedOut)
                 {
-                    await idempotencyService.AbandonAsync(existing, context.RequestAborted);
+                    try
+                    {
+                        await idempotencyService.AbandonAsync(existing, context.RequestAborted);
+                    }
+                    catch (DbUpdateConcurrencyException)
+                    {
+                        // Another request already cleared this record; proceed as new.
+                    }
                 }
                 else if (!string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal))
                 {
@@ -172,6 +184,33 @@ namespace PaymentSys.Middleware
             {
                 context.Response.Body = originalResponseBody;
             }
+        }
+
+        private static string BuildEndpoint(HttpContext context)
+        {
+            var path = context.Request.Path.Value ?? "/";
+            var client = context.User.Identity?.Name;
+
+            var endpoint = string.IsNullOrWhiteSpace(client)
+                ? $"anonymous|{path}"
+                : $"{client}|{path}";
+
+            if (endpoint.Length <= 200)
+            {
+                return endpoint;
+            }
+
+            var hash = System.Security.Cryptography.SHA256.HashData(
+                Encoding.UTF8.GetBytes(endpoint));
+
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
+
+        private static double GetInProgressTimeout(IdempotencyOptions settings)
+        {
+            return settings.InProgressTimeoutMinutes > 0
+                ? settings.InProgressTimeoutMinutes
+                : 5;
         }
 
         private static async Task<string> ComputeRequestHashAsync(HttpContext context)

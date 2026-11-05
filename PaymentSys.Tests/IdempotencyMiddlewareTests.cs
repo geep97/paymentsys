@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -92,7 +93,7 @@ namespace PaymentSys.Tests
             var service = CreateService(dbContext);
 
             await service.BeginAsync(
-                "/api/payments",
+                "anonymous|/api/payments",
                 "key-3",
                 service.ComputeRequestHash("{}"));
 
@@ -104,6 +105,63 @@ namespace PaymentSys.Tests
             await middleware.InvokeAsync(context, service, CreateOptions());
 
             Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+        }
+
+        [Fact]
+        public async Task InvokeAsync_RecoversFromStaleInProgressRequest()
+        {
+            using var dbContext = TestDb.Create();
+            var service = CreateService(dbContext);
+            var nextCalls = 0;
+
+            var stale = await service.BeginAsync(
+                "anonymous|/api/payments",
+                "key-4",
+                service.ComputeRequestHash("{}"));
+
+            stale.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+            await dbContext.SaveChangesAsync();
+
+            var middleware = new IdempotencyMiddleware(
+                context =>
+                {
+                    nextCalls++;
+                    context.Response.StatusCode = StatusCodes.Status200OK;
+                    return Task.CompletedTask;
+                },
+                NullLogger<IdempotencyMiddleware>.Instance);
+
+            var request = CreateContext("key-4", "{}");
+            await middleware.InvokeAsync(request, service, CreateOptions());
+
+            Assert.Equal(StatusCodes.Status200OK, request.Response.StatusCode);
+            Assert.Equal(1, nextCalls);
+        }
+
+        [Fact]
+        public async Task InvokeAsync_ScopesKeysPerClient()
+        {
+            using var dbContext = TestDb.Create();
+            var service = CreateService(dbContext);
+            var nextCalls = 0;
+
+            var middleware = new IdempotencyMiddleware(
+                context =>
+                {
+                    nextCalls++;
+                    context.Response.StatusCode = StatusCodes.Status200OK;
+                    return Task.CompletedTask;
+                },
+                NullLogger<IdempotencyMiddleware>.Instance);
+
+            var firstRequest = CreateContext("shared-key", "{}", "merchant-a");
+            await middleware.InvokeAsync(firstRequest, service, CreateOptions());
+
+            var secondRequest = CreateContext("shared-key", "{}", "merchant-b");
+            await middleware.InvokeAsync(secondRequest, service, CreateOptions());
+
+            Assert.Equal(2, nextCalls);
+            Assert.Equal(StatusCodes.Status200OK, secondRequest.Response.StatusCode);
         }
 
         private static IdempotencyService CreateService(PaymentDbContext dbContext)
@@ -118,7 +176,10 @@ namespace PaymentSys.Tests
             return OptionsFactory.Create(new IdempotencyOptions());
         }
 
-        private static DefaultHttpContext CreateContext(string? idempotencyKey, string body)
+        private static DefaultHttpContext CreateContext(
+            string? idempotencyKey,
+            string body,
+            string? clientName = null)
         {
             var context = new DefaultHttpContext
             {
@@ -134,6 +195,14 @@ namespace PaymentSys.Tests
             if (idempotencyKey is not null)
             {
                 context.Request.Headers["Idempotency-Key"] = idempotencyKey;
+            }
+
+            if (clientName is not null)
+            {
+                context.User = new ClaimsPrincipal(
+                    new ClaimsIdentity(
+                        new[] { new Claim(ClaimTypes.Name, clientName) },
+                        "Test"));
             }
 
             context.SetEndpoint(new Endpoint(
