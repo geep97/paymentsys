@@ -188,8 +188,14 @@ namespace PaymentSys.Data.Migrations
 
                     b.ToTable("JournalEntries", t =>
                         {
+                            t.HasTrigger("TR_JournalEntries_EnforceBalance");
+
+                            t.HasTrigger("TR_JournalEntries_Immutable");
+
                             t.HasCheckConstraint("CK_JournalEntries_CurrencyCode", "[CurrencyCode] = 'GHS'");
                         });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("PaymentSys.Models.Ledger.JournalEntryLine", b =>
@@ -220,8 +226,12 @@ namespace PaymentSys.Data.Migrations
 
                     b.ToTable("JournalEntryLines", t =>
                         {
+                            t.HasTrigger("TR_JournalEntryLines_Immutable");
+
                             t.HasCheckConstraint("CK_JournalEntryLines_SingleSide", "[DebitPesewas] >= 0 AND [CreditPesewas] >= 0 AND NOT ([DebitPesewas] > 0 AND [CreditPesewas] > 0) AND ([DebitPesewas] > 0 OR [CreditPesewas] > 0)");
                         });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("PaymentSys.Models.Payments.PaymentTransaction", b =>
