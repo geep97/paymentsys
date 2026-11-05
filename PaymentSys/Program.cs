@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PaymentSys.Authentication;
+using PaymentSys.BackgroundServices;
 using PaymentSys.Data;
 using PaymentSys.Middleware;
 using PaymentSys.Options;
@@ -75,6 +76,8 @@ if (allowedOrigins.Length > 0)
 }
 
 builder.Services.AddScoped<IIdempotencyService, IdempotencyService>();
+
+builder.Services.AddHostedService<RetentionCleanupService>();
 
 builder.Services.AddHttpClient<IPaystackClient, PaystackClient>((sp, client) =>
 {
