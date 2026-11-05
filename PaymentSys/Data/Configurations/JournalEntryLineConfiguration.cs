@@ -24,9 +24,14 @@ namespace PaymentSys.Data.Configurations
 
             builder.HasIndex(l => l.AccountId);
 
-            builder.ToTable(t => t.HasCheckConstraint(
-                "CK_JournalEntryLines_SingleSide",
-                "[DebitPesewas] >= 0 AND [CreditPesewas] >= 0 AND NOT ([DebitPesewas] > 0 AND [CreditPesewas] > 0) AND ([DebitPesewas] > 0 OR [CreditPesewas] > 0)"));
+            builder.ToTable(t =>
+            {
+                t.HasTrigger("TR_JournalEntryLines_Immutable");
+
+                t.HasCheckConstraint(
+                    "CK_JournalEntryLines_SingleSide",
+                    "[DebitPesewas] >= 0 AND [CreditPesewas] >= 0 AND NOT ([DebitPesewas] > 0 AND [CreditPesewas] > 0) AND ([DebitPesewas] > 0 OR [CreditPesewas] > 0)");
+            });
         }
     }
 }

@@ -43,8 +43,7 @@ namespace PaymentSys.Services.Ledger
                 Narration = request.Narration.Trim(),
                 CurrencyCode = currencyCode,
                 PaymentTransactionId = request.PaymentTransactionId,
-                CreatedAt = DateTime.UtcNow,
-                PostedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow
             };
 
             foreach (var line in request.Lines)
@@ -61,6 +60,9 @@ namespace PaymentSys.Services.Ledger
 
             try
             {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                entry.PostedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
                 if (ownedTransaction is not null)
@@ -133,8 +135,7 @@ namespace PaymentSys.Services.Ledger
                 CurrencyCode = original.CurrencyCode,
                 PaymentTransactionId = original.PaymentTransactionId,
                 ReversalOfId = original.Id,
-                CreatedAt = DateTime.UtcNow,
-                PostedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow
             };
 
             foreach (var line in original.Lines)
@@ -151,6 +152,9 @@ namespace PaymentSys.Services.Ledger
 
             try
             {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                reversal.PostedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
                 if (ownedTransaction is not null)

@@ -43,9 +43,15 @@ namespace PaymentSys.Data.Configurations
 
             builder.HasIndex(e => e.ReversalOfId);
 
-            builder.ToTable(t => t.HasCheckConstraint(
-                "CK_JournalEntries_CurrencyCode",
-                "[CurrencyCode] = 'GHS'"));
+            builder.ToTable(t =>
+            {
+                t.HasTrigger("TR_JournalEntries_Immutable");
+                t.HasTrigger("TR_JournalEntries_EnforceBalance");
+
+                t.HasCheckConstraint(
+                    "CK_JournalEntries_CurrencyCode",
+                    "[CurrencyCode] = 'GHS'");
+            });
         }
     }
 }
