@@ -19,6 +19,7 @@ namespace PaymentSys.Controllers
         private const string ProviderName = "Paystack";
         private const string SignatureHeader = "x-paystack-signature";
         private const string ChargeSuccessEvent = "charge.success";
+        private const string RefundProcessedEvent = "refund.processed";
 
         private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -139,6 +140,18 @@ namespace PaymentSys.Controllers
                     }
 
                     await _paymentService.VerifyAsync(webhook.Data.Reference, cancellationToken);
+                }
+                else if (string.Equals(webhook.Event, RefundProcessedEvent, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(webhook.Data.Reference))
+                    {
+                        throw new InvalidOperationException(
+                            "Paystack webhook is missing the transaction reference.");
+                    }
+
+                    await _paymentService.MarkReversedAsync(
+                        webhook.Data.Reference,
+                        cancellationToken);
                 }
 
                 log.IsProcessed = true;

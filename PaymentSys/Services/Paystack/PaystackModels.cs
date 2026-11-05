@@ -57,8 +57,7 @@ namespace PaymentSys.Services.Paystack
     }
 
     public class PaystackTransactionData
-    {
-        [JsonPropertyName("id")]
+    {        [JsonPropertyName("id")]
         public long Id { get; set; }
 
         [JsonPropertyName("status")]
@@ -84,5 +83,47 @@ namespace PaymentSys.Services.Paystack
 
         [JsonPropertyName("channel")]
         public string? Channel { get; set; }
+    }
+
+    public class PaystackRefundRequest
+    {
+        [JsonPropertyName("transaction")]
+        public string Transaction { get; set; } = string.Empty;
+
+        [JsonPropertyName("amount")]
+        public long? Amount { get; set; }
+
+        [JsonPropertyName("merchant_note")]
+        public string? MerchantNote { get; set; }
+    }
+
+    public class PaystackRefundResponse
+    {
+        [JsonPropertyName("status")]
+        public bool Status { get; set; }
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [JsonPropertyName("data")]
+        public PaystackRefundData? Data { get; set; }
+    }
+
+    public class PaystackRefundData
+    {
+        [JsonPropertyName("id")]
+        public long Id { get; set; }
+
+        [JsonPropertyName("status")]
+        public string Status { get; set; } = string.Empty;
+
+        [JsonPropertyName("amount")]
+        public long Amount { get; set; }
+
+        [JsonPropertyName("currency")]
+        public string Currency { get; set; } = string.Empty;
+
+        [JsonPropertyName("merchant_note")]
+        public string? MerchantNote { get; set; }
     }
 }

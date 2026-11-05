@@ -180,6 +180,136 @@ namespace PaymentSys.Services.Payments
                     $"Payment transaction '{normalizedReference}' was not found.");
         }
 
+        public async Task<PaymentTransaction> RefundAsync(
+            string reference,
+            RefundPaymentRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            var transaction = await GetTrackedAsync(reference, cancellationToken);
+
+            if (transaction.Status == PaymentStatus.Reversed)
+            {
+                return transaction;
+            }
+
+            if (transaction.Status != PaymentStatus.Success)
+            {
+                throw new InvalidOperationException(
+                    $"Only successful payments can be refunded. Payment '{transaction.Reference}' is {transaction.Status}.");
+            }
+
+            await _paystackClient.RefundTransactionAsync(
+                new PaystackRefundRequest
+                {
+                    Transaction = transaction.Reference,
+                    Amount = transaction.AmountPesewas,
+                    MerchantNote = request.MerchantNote
+                },
+                cancellationToken);
+
+            await MarkReversedAsync(transaction, "Refund", cancellationToken);
+
+            _logger.LogInformation(
+                "Refunded payment {Reference}",
+                transaction.Reference);
+
+            return transaction;
+        }
+
+        public async Task<PaymentTransaction> MarkReversedAsync(
+            string reference,
+            CancellationToken cancellationToken = default)
+        {
+            var transaction = await GetTrackedAsync(reference, cancellationToken);
+
+            return await MarkReversedAsync(transaction, "Reversal", cancellationToken);
+        }
+
+        private async Task<PaymentTransaction> MarkReversedAsync(
+            PaymentTransaction transaction,
+            string reason,
+            CancellationToken cancellationToken)
+        {
+            if (transaction.Status == PaymentStatus.Reversed)
+            {
+                return transaction;
+            }
+
+            await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                if (!TryTransition(transaction, PaymentStatus.Reversed))
+                {
+                    throw new InvalidOperationException(
+                        $"Payment '{transaction.Reference}' cannot transition from {transaction.Status} to {PaymentStatus.Reversed}.");
+                }
+
+                transaction.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                var originalEntry = await _dbContext.JournalEntries
+                    .Include(e => e.Lines)
+                    .FirstOrDefaultAsync(
+                        e => e.PaymentTransactionId == transaction.Id && e.ReversalOfId == null,
+                        cancellationToken);
+
+                if (originalEntry is null)
+                {
+                    _logger.LogWarning(
+                        "No ledger entry found to reverse for payment {Reference}",
+                        transaction.Reference);
+                }
+                else
+                {
+                    var alreadyReversed = await _dbContext.JournalEntries
+                        .AnyAsync(e => e.ReversalOfId == originalEntry.Id, cancellationToken);
+
+                    if (!alreadyReversed)
+                    {
+                        await _ledgerPostingService.ReverseAsync(
+                            originalEntry.Id,
+                            new ReverseJournalEntryRequest
+                            {
+                                Reference = $"REV-{transaction.Reference}",
+                                Narration = $"{reason} for payment {transaction.Reference}"
+                            },
+                            cancellationToken);
+                    }
+                }
+
+                await dbTransaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await dbTransaction.RollbackAsync(CancellationToken.None);
+                throw;
+            }
+
+            return transaction;
+        }
+
+        private async Task<PaymentTransaction> GetTrackedAsync(
+            string reference,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(reference))
+            {
+                throw new ArgumentException("Reference is required.", nameof(reference));
+            }
+
+            var normalizedReference = reference.Trim();
+
+            return await _dbContext.PaymentTransactions
+                .FirstOrDefaultAsync(
+                    p => p.Reference == normalizedReference,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    $"Payment transaction '{normalizedReference}' was not found.");
+        }
+
         private long ApplyProviderStatus(
             PaymentTransaction transaction,
             PaystackTransactionData data)

@@ -57,5 +57,18 @@ namespace PaymentSys.Controllers
 
             return Ok(PaymentResponse.From(transaction));
         }
+
+        [HttpPost("{reference}/refund")]
+        [Idempotent]
+        [ProducesResponseType(typeof(PaymentResponse), StatusCodes.Status200OK)]
+        public async Task<ActionResult<PaymentResponse>> Refund(
+            string reference,
+            [FromBody] RefundPaymentRequest request,
+            CancellationToken cancellationToken)
+        {
+            var transaction = await _paymentService.RefundAsync(reference, request, cancellationToken);
+
+            return Ok(PaymentResponse.From(transaction));
+        }
     }
 }

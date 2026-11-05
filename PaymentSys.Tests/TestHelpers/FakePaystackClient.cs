@@ -36,9 +36,26 @@ namespace PaymentSys.Tests.TestHelpers
 
         public int VerifyCallCount { get; private set; }
 
+        public int RefundCallCount { get; private set; }
+
         public PaystackInitializeRequest? LastInitializeRequest { get; private set; }
 
         public string? LastVerifiedReference { get; private set; }
+
+        public PaystackRefundRequest? LastRefundRequest { get; private set; }
+
+        public PaystackRefundResponse RefundResponse { get; set; } = new()
+        {
+            Status = true,
+            Message = "Refund has been queued for processing",
+            Data = new PaystackRefundData
+            {
+                Id = 1,
+                Status = "pending",
+                Amount = 100,
+                Currency = "GHS"
+            }
+        };
 
         public Task<PaystackInitializeResponse> InitializeTransactionAsync(
             PaystackInitializeRequest request,
@@ -60,6 +77,16 @@ namespace PaymentSys.Tests.TestHelpers
             VerifyResponse.Data!.Reference = reference;
 
             return Task.FromResult(VerifyResponse);
+        }
+
+        public Task<PaystackRefundResponse> RefundTransactionAsync(
+            PaystackRefundRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            RefundCallCount++;
+            LastRefundRequest = request;
+
+            return Task.FromResult(RefundResponse);
         }
     }
 }

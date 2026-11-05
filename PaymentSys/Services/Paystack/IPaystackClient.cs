@@ -9,5 +9,9 @@ namespace PaymentSys.Services.Paystack
         Task<PaystackVerifyResponse> VerifyTransactionAsync(
             string reference,
             CancellationToken cancellationToken = default);
+
+        Task<PaystackRefundResponse> RefundTransactionAsync(
+            PaystackRefundRequest request,
+            CancellationToken cancellationToken = default);
     }
 }
