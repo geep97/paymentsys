@@ -7,5 +7,7 @@ namespace PaymentSys.Options
         public string SettlementAccountNumber { get; set; } = "1000";
 
         public string RevenueAccountNumber { get; set; } = "4000";
+
+        public string FeesAccountNumber { get; set; } = "5000";
     }
 }

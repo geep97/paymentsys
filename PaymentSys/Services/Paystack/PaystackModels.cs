@@ -70,6 +70,9 @@ namespace PaymentSys.Services.Paystack
         [JsonPropertyName("amount")]
         public long Amount { get; set; }
 
+        [JsonPropertyName("fees")]
+        public long Fees { get; set; }
+
         [JsonPropertyName("currency")]
         public string Currency { get; set; } = string.Empty;
 

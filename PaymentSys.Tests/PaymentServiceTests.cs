@@ -65,7 +65,7 @@ namespace PaymentSys.Tests
             await service.VerifyAsync(initiated.Transaction.Reference);
 
             Assert.Equal(1, await dbContext.JournalEntries.CountAsync());
-            Assert.Equal(1, fakeClient.VerifyCallCount);
+            Assert.Equal(2, fakeClient.VerifyCallCount);
         }
 
         [Fact]
@@ -114,6 +114,86 @@ namespace PaymentSys.Tests
         }
 
         [Fact]
+        public async Task VerifyAsync_OnSuccessRecordsProviderFees()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            ConfigureVerifyResponse(fakeClient, "success", 1500, fees: 100);
+
+            await service.VerifyAsync(initiated.Transaction.Reference);
+
+            var entry = await dbContext.JournalEntries
+                .Include(e => e.Lines)
+                .SingleAsync(e => e.PaymentTransactionId == initiated.Transaction.Id);
+
+            var settlement = await dbContext.Accounts.SingleAsync(a => a.AccountNumber == "1000");
+            var revenue = await dbContext.Accounts.SingleAsync(a => a.AccountNumber == "4000");
+            var fees = await dbContext.Accounts.SingleAsync(a => a.AccountNumber == "5000");
+
+            Assert.Equal(1400, entry.Lines.Single(l => l.AccountId == settlement.Id).DebitPesewas);
+            Assert.Equal(100, entry.Lines.Single(l => l.AccountId == fees.Id).DebitPesewas);
+            Assert.Equal(1500, entry.Lines.Single(l => l.AccountId == revenue.Id).CreditPesewas);
+            Assert.Equal(
+                entry.Lines.Sum(l => l.DebitPesewas),
+                entry.Lines.Sum(l => l.CreditPesewas));
+        }
+
+        [Fact]
+        public async Task VerifyAsync_LeavesAbandonedPaymentPending()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            ConfigureVerifyResponse(fakeClient, "abandoned", 1500);
+
+            var verified = await service.VerifyAsync(initiated.Transaction.Reference);
+
+            Assert.Equal(PaymentStatus.Pending, verified.Status);
+            Assert.Empty(dbContext.JournalEntries);
+        }
+
+        [Fact]
+        public async Task VerifyAsync_DoesNotReviveFailedPayment()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            ConfigureVerifyResponse(fakeClient, "failed", 1500);
+            await service.VerifyAsync(initiated.Transaction.Reference);
+
+            ConfigureVerifyResponse(fakeClient, "success", 1500);
+            var verified = await service.VerifyAsync(initiated.Transaction.Reference);
+
+            Assert.Equal(PaymentStatus.Failed, verified.Status);
+            Assert.Empty(dbContext.JournalEntries);
+        }
+
+        [Fact]
         public async Task InitiateAsync_RejectsInvalidEmail()
         {
             using var dbContext = TestDb.Create();
@@ -130,10 +210,12 @@ namespace PaymentSys.Tests
         private static void ConfigureVerifyResponse(
             FakePaystackClient fakeClient,
             string status,
-            long amountPesewas)
+            long amountPesewas,
+            long fees = 0)
         {
             fakeClient.VerifyResponse.Data!.Status = status;
             fakeClient.VerifyResponse.Data.Amount = amountPesewas;
+            fakeClient.VerifyResponse.Data.Fees = fees;
             fakeClient.VerifyResponse.Data.Currency = "GHS";
             fakeClient.VerifyResponse.Data.PaidAt = status == "success"
                 ? DateTimeOffset.UtcNow

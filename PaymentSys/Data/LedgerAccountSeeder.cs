@@ -25,6 +25,13 @@ namespace PaymentSys.Data
                     AccountNumber = "4000",
                     Type = AccountType.Revenue,
                     CurrencyCode = "GHS"
+                },
+                new Account
+                {
+                    Name = "Payment Processing Fees",
+                    AccountNumber = "5000",
+                    Type = AccountType.Expense,
+                    CurrencyCode = "GHS"
                 }
             };
 
