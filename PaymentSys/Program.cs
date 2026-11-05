@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PaymentSys.Data;
+using PaymentSys.Middleware;
 using PaymentSys.Options;
+using PaymentSys.Services.Idempotency;
 using PaymentSys.Services.Ledger;
 using PaymentSys.Services.Payments;
 using PaymentSys.Services.Paystack;
@@ -23,6 +25,10 @@ builder.Services.Configure<PaystackOptions>(
     builder.Configuration.GetSection(PaystackOptions.SectionName));
 builder.Services.Configure<LedgerOptions>(
     builder.Configuration.GetSection(LedgerOptions.SectionName));
+builder.Services.Configure<IdempotencyOptions>(
+    builder.Configuration.GetSection(IdempotencyOptions.SectionName));
+
+builder.Services.AddScoped<IIdempotencyService, IdempotencyService>();
 
 builder.Services.AddHttpClient<IPaystackClient, PaystackClient>((sp, client) =>
 {
@@ -52,6 +58,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseMiddleware<IdempotencyMiddleware>();
 
 app.UseAuthorization();
 
