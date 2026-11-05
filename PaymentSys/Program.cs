@@ -7,6 +7,7 @@ using PaymentSys.Authentication;
 using PaymentSys.BackgroundServices;
 using PaymentSys.Data;
 using PaymentSys.Middleware;
+using PaymentSys.OpenApi;
 using PaymentSys.Options;
 using PaymentSys.Services.Idempotency;
 using PaymentSys.Services.Ledger;
@@ -20,7 +21,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer<ApiKeyDocumentTransformer>();
+    options.AddOperationTransformer<PaymentOperationTransformer>();
+});
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -97,7 +102,11 @@ builder.Services.AddScoped<IPaystackSignatureVerifier, PaystackSignatureVerifier
 var app = builder.Build();
 
 app.MapOpenApi();
-app.MapScalarApiReference(options => options.WithTitle("PaymentSys API"));
+app.MapScalarApiReference(options =>
+{
+    options.WithTitle("PaymentSys API");
+    options.AddPreferredSecuritySchemes(new[] { ApiKeyDocumentTransformer.SchemeName });
+});
 
 app.MapGet("/", () => Results.Redirect("/scalar/v1"))
     .ExcludeFromDescription();

@@ -4,14 +4,14 @@
 
 A GHS payment API built on Paystack, designed around the failure modes that break payment integrations: retried requests, duplicate webhooks, mismatched amounts, partial fees, and refunds that have to undo the books.
 
-Most payment portfolio projects stop at "redirect to the gateway and update a status column." PaymentSys treats money as a double-entry ledger, enforces invariants in the database, and makes every write observable and replay-safe.
+Typical payment integrations stop at "redirect to the gateway and update a status column." PaymentSys treats money as a double-entry ledger, enforces invariants in the database, and makes every write observable and replay-safe.
 
+- Stack: ASP.NET Core `net10.0`, EF Core 10, SQL Server, Paystack
 - API docs: `/scalar/v1` (Scalar UI over OpenAPI)
 - Health check: `/health`
-- Stack: ASP.NET Core `net10.0`, EF Core 10, SQL Server, Paystack
 - Tests: 43 (unit + HTTP integration)
 
-## Why this is not a tutorial payment project
+## Design principles
 
 - **Money is posted, not just marked as paid.** Every successful charge creates a balanced journal entry with separate settlement, revenue, and processing-fee lines.
 - **The database enforces the rules.** SQL Server triggers reject unbalanced entries and block updates/deletes on posted entries. Corrections happen through reversal entries, not edits.
@@ -30,7 +30,7 @@ flowchart LR
     API -->|"Initialize / Verify / Refund"| Paystack["Paystack"]
     Paystack -->|"Signed webhooks"| API
     API -->|"EF Core, transactions"| DB[("SQL Server")]
-    Browser["Reviewer browser"] -->|"Scalar docs"| API
+    Browser["Developer browser"] -->|"Scalar docs"| API
 ```
 
 ### Payment lifecycle
@@ -125,6 +125,8 @@ Keys are scoped per authenticated merchant, so two clients cannot collide. A bac
 - Supported events: `charge.success` (verify and post), `refund.processed` (mark reversed).
 - Every received event is stored with its payload, processing attempts, and error message. Non-supported events are logged and acknowledged.
 
+A Postman collection with environment variables and a signed-webhook request is included at [`docs/PaymentSys.postman_collection.json`](docs/PaymentSys.postman_collection.json).
+
 ## Quick start
 
 Prerequisites: .NET 10 SDK, SQL Server LocalDB, a Paystack account.
@@ -177,14 +179,9 @@ The integration suite uses EF Core InMemory and a fake Paystack client, so it ru
 2. Apply migrations as part of deployment: `dotnet ef database update --project PaymentSys`.
 3. Ensure the app is reachable over HTTPS so Paystack can deliver webhooks.
 4. Point the Paystack webhook URL at `https://<host>/api/webhooks/paystack`.
-5. Use Paystack **test** keys for any public demo. Never expose a live secret key or the merchant API key to a browser.
+5. Use Paystack **test** keys outside production. Keep the live secret key and merchant API key server-side only, and expect real money movement in live mode.
 
-The API docs and health endpoint are intentionally public for demo purposes. Put them behind authentication (or remove `MapOpenApi`/`MapScalarApiReference`) if the API should not be discoverable.
-
-## Demo assets
-
-- [`docs/DEMO.md`](docs/DEMO.md) - a 2-3 minute recording script covering initiate, checkout, webhook, ledger, and refund.
-- [`docs/PaymentSys.postman_collection.json`](docs/PaymentSys.postman_collection.json) - Postman collection with variables and a signed-webhook request.
+The API docs and health endpoint are public by default. Put them behind authentication (or remove `MapOpenApi`/`MapScalarApiReference`) if the API should not be discoverable.
 
 ## Project layout
 
