@@ -88,6 +88,37 @@ namespace PaymentSys.Services.Paystack
             return result;
         }
 
+        public async Task<PaystackRefundResponse> RefundTransactionAsync(
+            PaystackRefundRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureSecretKeyConfigured();
+
+            using var response = await _httpClient.PostAsJsonAsync(
+                "refund",
+                request,
+                JsonOptions,
+                cancellationToken);
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            EnsureSuccessfulResponse(response, body, "refund transaction");
+
+            var result = Deserialize<PaystackRefundResponse>(body, "refund transaction");
+
+            if (!result.Status || result.Data is null)
+            {
+                throw new PaystackException(
+                    $"Paystack rejected the refund: {result.Message}");
+            }
+
+            _logger.LogInformation(
+                "Requested Paystack refund {RefundId} for transaction {Reference}",
+                result.Data.Id,
+                request.Transaction);
+
+            return result;
+        }
+
         private void EnsureSecretKeyConfigured()
         {
             if (string.IsNullOrWhiteSpace(_options.SecretKey))

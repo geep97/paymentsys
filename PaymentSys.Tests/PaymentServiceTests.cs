@@ -194,6 +194,117 @@ namespace PaymentSys.Tests
         }
 
         [Fact]
+        public async Task RefundAsync_ReversesPaymentAndLedger()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            ConfigureVerifyResponse(fakeClient, "success", 1500, fees: 100);
+            await service.VerifyAsync(initiated.Transaction.Reference);
+
+            var refunded = await service.RefundAsync(
+                initiated.Transaction.Reference,
+                new RefundPaymentRequest { MerchantNote = "Customer request" });
+
+            Assert.Equal(PaymentStatus.Reversed, refunded.Status);
+            Assert.Equal(1, fakeClient.RefundCallCount);
+            Assert.Equal(1500, fakeClient.LastRefundRequest!.Amount);
+
+            var entries = await dbContext.JournalEntries
+                .Include(e => e.Lines)
+                .Where(e => e.PaymentTransactionId == initiated.Transaction.Id)
+                .ToListAsync();
+
+            Assert.Equal(2, entries.Count);
+
+            var original = entries.Single(e => e.ReversalOfId is null);
+            var reversal = entries.Single(e => e.ReversalOfId == original.Id);
+
+            Assert.Equal(
+                original.Lines.Sum(l => l.DebitPesewas),
+                reversal.Lines.Sum(l => l.CreditPesewas));
+        }
+
+        [Fact]
+        public async Task RefundAsync_IsIdempotentForAlreadyReversedPayment()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            ConfigureVerifyResponse(fakeClient, "success", 1500);
+            await service.VerifyAsync(initiated.Transaction.Reference);
+            await service.RefundAsync(initiated.Transaction.Reference, new RefundPaymentRequest());
+
+            var secondRefund = await service.RefundAsync(
+                initiated.Transaction.Reference,
+                new RefundPaymentRequest());
+
+            Assert.Equal(PaymentStatus.Reversed, secondRefund.Status);
+            Assert.Equal(1, fakeClient.RefundCallCount);
+            Assert.Equal(2, await dbContext.JournalEntries.CountAsync());
+        }
+
+        [Fact]
+        public async Task RefundAsync_RejectsPendingPayment()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.RefundAsync(initiated.Transaction.Reference, new RefundPaymentRequest()));
+
+            Assert.Equal(0, fakeClient.RefundCallCount);
+        }
+
+        [Fact]
+        public async Task MarkReversedAsync_ReversesSuccessfulPayment()
+        {
+            using var dbContext = TestDb.Create();
+            await TestDb.SeedAccountsAsync(dbContext);
+            var fakeClient = new FakePaystackClient();
+            var service = CreateService(dbContext, fakeClient);
+
+            var initiated = await service.InitiateAsync(new InitiatePaymentRequest
+            {
+                Email = "customer@example.com",
+                AmountPesewas = 1500
+            });
+
+            ConfigureVerifyResponse(fakeClient, "success", 1500);
+            await service.VerifyAsync(initiated.Transaction.Reference);
+
+            var reversed = await service.MarkReversedAsync(initiated.Transaction.Reference);
+
+            Assert.Equal(PaymentStatus.Reversed, reversed.Status);
+            Assert.Equal(0, fakeClient.RefundCallCount);
+            Assert.Equal(2, await dbContext.JournalEntries.CountAsync());
+        }
+
+        [Fact]
         public async Task InitiateAsync_RejectsInvalidEmail()
         {
             using var dbContext = TestDb.Create();

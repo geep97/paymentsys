@@ -15,5 +15,14 @@ namespace PaymentSys.Services.Payments
         Task<PaymentTransaction> GetAsync(
             string reference,
             CancellationToken cancellationToken = default);
+
+        Task<PaymentTransaction> RefundAsync(
+            string reference,
+            RefundPaymentRequest request,
+            CancellationToken cancellationToken = default);
+
+        Task<PaymentTransaction> MarkReversedAsync(
+            string reference,
+            CancellationToken cancellationToken = default);
     }
 }
