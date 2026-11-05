@@ -33,7 +33,9 @@ namespace PaymentSys.Services.Ledger
             await EnsurePaymentTransactionExistsAsync(request.PaymentTransactionId, cancellationToken);
             _ = await LoadAccountsAsync(request.Lines, currencyCode, cancellationToken);
 
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            await using var ownedTransaction = _dbContext.Database.CurrentTransaction is null
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+                : null;
 
             var entry = new JournalEntry
             {
@@ -56,8 +58,25 @@ namespace PaymentSys.Services.Ledger
             }
 
             _dbContext.JournalEntries.Add(entry);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                if (ownedTransaction is not null)
+                {
+                    await ownedTransaction.CommitAsync(cancellationToken);
+                }
+            }
+            catch
+            {
+                if (ownedTransaction is not null)
+                {
+                    await ownedTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                throw;
+            }
 
             _logger.LogInformation(
                 "Posted journal entry {Reference} with {LineCount} lines",
@@ -103,7 +122,9 @@ namespace PaymentSys.Services.Ledger
                 throw new InvalidOperationException($"Journal entry {journalEntryId} has already been reversed.");
             }
 
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            await using var ownedTransaction = _dbContext.Database.CurrentTransaction is null
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+                : null;
 
             var reversal = new JournalEntry
             {
@@ -127,8 +148,25 @@ namespace PaymentSys.Services.Ledger
             }
 
             _dbContext.JournalEntries.Add(reversal);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                if (ownedTransaction is not null)
+                {
+                    await ownedTransaction.CommitAsync(cancellationToken);
+                }
+            }
+            catch
+            {
+                if (ownedTransaction is not null)
+                {
+                    await ownedTransaction.RollbackAsync(CancellationToken.None);
+                }
+
+                throw;
+            }
 
             _logger.LogInformation(
                 "Reversed journal entry {OriginalId} with journal entry {ReversalId}",

@@ -121,12 +121,6 @@ namespace PaymentSys.Services.Payments
                 .FirstOrDefaultAsync(p => p.Reference == normalizedReference, cancellationToken)
                 ?? throw new KeyNotFoundException($"Payment transaction '{normalizedReference}' was not found.");
 
-            if (transaction.Status == PaymentStatus.Success)
-            {
-                await EnsureLedgerPostedAsync(transaction, cancellationToken);
-                return transaction;
-            }
-
             var response = await _paystackClient.VerifyTransactionAsync(
                 transaction.Reference,
                 cancellationToken);
@@ -135,20 +129,32 @@ namespace PaymentSys.Services.Payments
                 ?? throw new PaystackException(
                     $"Paystack did not return verification data for '{transaction.Reference}'.");
 
-            ApplyProviderStatus(transaction, data);
+            var feePesewas = ApplyProviderStatus(transaction, data);
 
             transaction.GatewayResponse = data.GatewayResponse ?? response.Message;
             transaction.UpdatedAt = DateTime.UtcNow;
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-            if (transaction.Status == PaymentStatus.Success)
+            try
             {
-                await EnsureLedgerPostedAsync(transaction, cancellationToken);
+                await _dbContext.SaveChangesAsync(cancellationToken);
 
-                _logger.LogInformation(
-                    "Verified payment {Reference} as successful",
-                    transaction.Reference);
+                if (transaction.Status == PaymentStatus.Success)
+                {
+                    await EnsureLedgerPostedAsync(transaction, feePesewas, cancellationToken);
+
+                    _logger.LogInformation(
+                        "Verified payment {Reference} as successful",
+                        transaction.Reference);
+                }
+
+                await dbTransaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await dbTransaction.RollbackAsync(CancellationToken.None);
+                throw;
             }
 
             return transaction;
@@ -174,29 +180,83 @@ namespace PaymentSys.Services.Payments
                     $"Payment transaction '{normalizedReference}' was not found.");
         }
 
-        private static void ApplyProviderStatus(
+        private long ApplyProviderStatus(
             PaymentTransaction transaction,
             PaystackTransactionData data)
         {
             var providerStatus = data.Status.Trim().ToLowerInvariant();
+            var feePesewas = 0L;
 
             switch (providerStatus)
             {
                 case "success":
                     EnsureVerifiedAmountMatches(transaction, data);
-                    transaction.Status = PaymentStatus.Success;
-                    transaction.PaidAt ??= data.PaidAt?.UtcDateTime ?? DateTime.UtcNow;
+                    feePesewas = NormalizeFees(transaction, data);
+
+                    if (TryTransition(transaction, PaymentStatus.Success))
+                    {
+                        transaction.PaidAt ??= data.PaidAt?.UtcDateTime ?? DateTime.UtcNow;
+                    }
+
                     break;
 
                 case "failed":
-                case "abandoned":
-                    transaction.Status = PaymentStatus.Failed;
+                    TryTransition(transaction, PaymentStatus.Failed);
                     break;
 
                 case "reversed":
-                    transaction.Status = PaymentStatus.Reversed;
+                    TryTransition(transaction, PaymentStatus.Reversed);
                     break;
             }
+
+            return feePesewas;
+        }
+
+        private bool TryTransition(PaymentTransaction transaction, PaymentStatus nextStatus)
+        {
+            if (transaction.Status == nextStatus)
+            {
+                return true;
+            }
+
+            if (IsTransitionAllowed(transaction.Status, nextStatus))
+            {
+                transaction.Status = nextStatus;
+                return true;
+            }
+
+            _logger.LogWarning(
+                "Rejected payment status transition {CurrentStatus} -> {NextStatus} for {Reference}",
+                transaction.Status,
+                nextStatus,
+                transaction.Reference);
+
+            return false;
+        }
+
+        private static bool IsTransitionAllowed(PaymentStatus current, PaymentStatus next)
+        {
+            return (current, next) switch
+            {
+                (PaymentStatus.Pending, PaymentStatus.Success) => true,
+                (PaymentStatus.Pending, PaymentStatus.Failed) => true,
+                (PaymentStatus.Pending, PaymentStatus.Reversed) => true,
+                (PaymentStatus.Success, PaymentStatus.Reversed) => true,
+                _ => false
+            };
+        }
+
+        private static long NormalizeFees(
+            PaymentTransaction transaction,
+            PaystackTransactionData data)
+        {
+            if (data.Fees < 0 || data.Fees > transaction.AmountPesewas)
+            {
+                throw new InvalidOperationException(
+                    $"Verified fees {data.Fees} are invalid for payment '{transaction.Reference}'.");
+            }
+
+            return data.Fees;
         }
 
         private static void EnsureVerifiedAmountMatches(
@@ -220,6 +280,7 @@ namespace PaymentSys.Services.Payments
 
         private async Task EnsureLedgerPostedAsync(
             PaymentTransaction payment,
+            long feePesewas,
             CancellationToken cancellationToken)
         {
             var alreadyPosted = await _dbContext.JournalEntries
@@ -240,6 +301,34 @@ namespace PaymentSys.Services.Payments
                 "revenue",
                 cancellationToken);
 
+            var lines = new List<JournalEntryLineRequest>
+            {
+                new()
+                {
+                    AccountId = settlementAccount.Id,
+                    DebitPesewas = payment.AmountPesewas - feePesewas
+                },
+                new()
+                {
+                    AccountId = revenueAccount.Id,
+                    CreditPesewas = payment.AmountPesewas
+                }
+            };
+
+            if (feePesewas > 0)
+            {
+                var feesAccount = await GetLedgerAccountAsync(
+                    _ledgerOptions.FeesAccountNumber,
+                    "fees",
+                    cancellationToken);
+
+                lines.Insert(1, new JournalEntryLineRequest
+                {
+                    AccountId = feesAccount.Id,
+                    DebitPesewas = feePesewas
+                });
+            }
+
             await _ledgerPostingService.PostAsync(
                 new PostJournalEntryRequest
                 {
@@ -247,25 +336,14 @@ namespace PaymentSys.Services.Payments
                     Narration = $"Payment received via {payment.Provider ?? ProviderName} ({payment.Reference})",
                     CurrencyCode = payment.Currency,
                     PaymentTransactionId = payment.Id,
-                    Lines = new List<JournalEntryLineRequest>
-                    {
-                        new()
-                        {
-                            AccountId = settlementAccount.Id,
-                            DebitPesewas = payment.AmountPesewas
-                        },
-                        new()
-                        {
-                            AccountId = revenueAccount.Id,
-                            CreditPesewas = payment.AmountPesewas
-                        }
-                    }
+                    Lines = lines
                 },
                 cancellationToken);
 
             _logger.LogInformation(
-                "Posted ledger entry for payment {Reference}",
-                payment.Reference);
+                "Posted ledger entry for payment {Reference} with fees {FeePesewas}",
+                payment.Reference,
+                feePesewas);
         }
 
         private async Task<Account> GetLedgerAccountAsync(
