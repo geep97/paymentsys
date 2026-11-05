@@ -1,0 +1,285 @@
+{
+  "info": {
+    "_postman_id": "5d3f8f6e-6d8f-4a37-9d2b-6f1b9c0e4a21",
+    "name": "PaymentSys API",
+    "description": "GHS payment API demo: initiate, verify, refund, and signed Paystack webhooks.\n\nBefore running:\n1. Set `baseUrl` to your API (for example http://localhost:5050).\n2. Set `apiKey` to your Merchant:ApiKey value.\n3. Set `paystackSecret` to the Paystack test secret key used by the API. It is only used to sign the demo webhook request locally.\n4. Run \"Initiate payment\" first; it stores the returned `reference` for the other requests.\n5. The webhook request requires an existing pending payment reference.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5050"
+    },
+    {
+      "key": "apiKey",
+      "value": "replace-with-merchant-api-key"
+    },
+    {
+      "key": "paystackSecret",
+      "value": "replace-with-paystack-test-secret"
+    },
+    {
+      "key": "reference",
+      "value": ""
+    },
+    {
+      "key": "initiateKey",
+      "value": ""
+    },
+    {
+      "key": "refundKey",
+      "value": ""
+    },
+    {
+      "key": "webhookEventId",
+      "value": "9000001"
+    }
+  ],
+  "item": [
+    {
+      "name": "Ops",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Returns API and database health. Expect 200 with `status: healthy` and `database: reachable`."
+          },
+          "response": []
+        },
+        {
+          "name": "OpenAPI document",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/openapi/v1.json",
+            "description": "Raw OpenAPI document. The interactive Scalar UI is at /scalar/v1."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Initiate payment",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"initiateKey\")) {",
+                  "    pm.collectionVariables.set(\"initiateKey\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test(\"reference returned\", function () {",
+                  "    pm.expect(body.reference).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set(\"reference\", body.reference);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{initiateKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"buyer@example.com\",\n  \"amountPesewas\": 1500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/payments",
+            "description": "Creates a pending payment and returns the Paystack authorization URL. Send it again with the same Idempotency-Key to see the stored response replayed. Change the key (or clear the `initiateKey` collection variable) to create a new payment."
+          },
+          "response": []
+        },
+        {
+          "name": "Get payment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{reference}}",
+            "description": "Returns the stored payment and its status."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{reference}}/verify",
+            "description": "Asks Paystack for the transaction status, verifies amount and currency, updates the status, and posts the ledger entry. Requires a payment that was actually completed with the test card."
+          },
+          "response": []
+        },
+        {
+          "name": "Refund payment",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"refundKey\")) {",
+                  "    pm.collectionVariables.set(\"refundKey\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test(\"payment reversed\", function () {",
+                  "    pm.expect(body.status).to.eql(\"Reversed\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Key",
+                "value": "{{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{refundKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantNote\": \"Demo refund\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/payments/{{reference}}/refund",
+            "description": "Refunds a successful payment through Paystack and posts an idempotent reversal journal entry. Send it again with the same Idempotency-Key to see the replay behavior."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "charge.success (signed)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const secret = pm.collectionVariables.get(\"paystackSecret\");",
+                  "const eventId = Number(pm.collectionVariables.get(\"webhookEventId\") || \"9000001\");",
+                  "const reference = pm.collectionVariables.get(\"reference\");",
+                  "const payload = JSON.stringify({",
+                  "    event: \"charge.success\",",
+                  "    data: { id: eventId, reference: reference }",
+                  "});",
+                  "const signature = CryptoJS.HmacSHA512(payload, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.variables.set(\"webhookPayload\", payload);",
+                  "pm.variables.set(\"webhookSignature\", signature);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-paystack-signature",
+                "value": "{{webhookSignature}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{webhookPayload}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/webhooks/paystack",
+            "description": "Builds a charge.success payload for the current `reference`, signs it with HMAC-SHA512 using `paystackSecret`, and sends it. The API verifies the signature, calls Paystack to verify the transaction, then posts the ledger entry. Send the request twice with the same event id to observe duplicate-webhook handling."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

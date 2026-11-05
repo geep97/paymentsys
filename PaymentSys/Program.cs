@@ -12,6 +12,7 @@ using PaymentSys.Services.Idempotency;
 using PaymentSys.Services.Ledger;
 using PaymentSys.Services.Payments;
 using PaymentSys.Services.Paystack;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -95,11 +96,35 @@ builder.Services.AddScoped<IPaystackSignatureVerifier, PaystackSignatureVerifier
 
 var app = builder.Build();
 
+app.MapOpenApi();
+app.MapScalarApiReference(options => options.WithTitle("PaymentSys API"));
+
+app.MapGet("/", () => Results.Redirect("/scalar/v1"))
+    .ExcludeFromDescription();
+
+app.MapGet("/health", async (
+    PaymentDbContext dbContext,
+    CancellationToken cancellationToken) =>
+{
+    var canConnect = await dbContext.Database.CanConnectAsync(cancellationToken);
+
+    var payload = new
+    {
+        status = canConnect ? "healthy" : "unhealthy",
+        database = canConnect ? "reachable" : "unreachable",
+        timestamp = DateTime.UtcNow
+    };
+
+    return canConnect
+        ? Results.Ok(payload)
+        : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
+})
+    .AllowAnonymous()
+    .ExcludeFromDescription();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
-
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
 
