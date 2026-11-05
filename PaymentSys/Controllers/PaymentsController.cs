@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PaymentSys.Contracts.Payments;
 using PaymentSys.Middleware;
 using PaymentSys.Services.Payments;
@@ -6,6 +8,8 @@ using PaymentSys.Services.Payments;
 namespace PaymentSys.Controllers
 {
     [ApiController]
+    [Authorize]
+    [EnableRateLimiting("payments")]
     [Route("api/payments")]
     public class PaymentsController : ControllerBase
     {
