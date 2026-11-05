@@ -2,7 +2,7 @@ using PaymentSys.Services.Paystack;
 
 namespace PaymentSys.Tests.TestHelpers
 {
-    internal sealed class FakePaystackClient : IPaystackClient
+    public sealed class FakePaystackClient : IPaystackClient
     {
         public PaystackInitializeResponse InitializeResponse { get; set; } = new()
         {
