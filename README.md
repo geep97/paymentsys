@@ -9,7 +9,7 @@ Typical payment integrations stop at "redirect to the gateway and update a statu
 - Stack: ASP.NET Core `net10.0`, EF Core 10, SQL Server, Paystack
 - API docs: `/scalar/v1` (Scalar UI over OpenAPI)
 - Health check: `/health`
-- Tests: 43 (unit + HTTP integration)
+- Tests: 45 (unit + HTTP integration)
 
 ## Design principles
 
@@ -20,7 +20,7 @@ Typical payment integrations stop at "redirect to the gateway and update a statu
 - **Status changes are guarded by a state machine.** `Pending -> Success | Failed | Reversed`, `Success -> Reversed`; illegal transitions are rejected and logged.
 - **Payment details are verified.** Amount and currency returned by Paystack must match the stored transaction before anything is posted.
 - **Refunds reverse the ledger.** A refund calls Paystack and then posts an idempotent reversal entry (`REV-{reference}`).
-- **The whole system is tested.** 43 tests cover the ledger, idempotency, signature verification, refunds, and the HTTP surface (401/400/201/replay/webhook).
+- **The whole system is tested.** 45 tests cover the ledger, idempotency, signature verification, refunds, and the HTTP surface (401/400/201/replay/webhook).
 
 ## Architecture
 

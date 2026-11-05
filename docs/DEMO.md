@@ -82,7 +82,7 @@ Show the three lines: settlement net, fee expense, revenue gross. Say: "Debits e
 
 ### 2:20 - Close
 
-Say: "Retries are safe, duplicate webhooks are ignored, amounts are verified, refunds reverse the books, and the database itself enforces the ledger. The repo has 43 tests and CI running on every push."
+Say: "Retries are safe, duplicate webhooks are ignored, amounts are verified, refunds reverse the books, and the database itself enforces the ledger. The repo has 45 tests and CI running on every push."
 
 Show the GitHub Actions badge and the README.
 
