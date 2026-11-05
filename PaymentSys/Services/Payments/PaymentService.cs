@@ -154,6 +154,26 @@ namespace PaymentSys.Services.Payments
             return transaction;
         }
 
+        public async Task<PaymentTransaction> GetAsync(
+            string reference,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(reference))
+            {
+                throw new ArgumentException("Reference is required.", nameof(reference));
+            }
+
+            var normalizedReference = reference.Trim();
+
+            return await _dbContext.PaymentTransactions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    p => p.Reference == normalizedReference,
+                    cancellationToken)
+                ?? throw new KeyNotFoundException(
+                    $"Payment transaction '{normalizedReference}' was not found.");
+        }
+
         private static void ApplyProviderStatus(
             PaymentTransaction transaction,
             PaystackTransactionData data)

@@ -42,6 +42,7 @@ builder.Services.AddHttpClient<IPaystackClient, PaystackClient>((sp, client) =>
 });
 
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IPaystackSignatureVerifier, PaystackSignatureVerifier>();
 
 var app = builder.Build();
 
@@ -59,6 +60,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<IdempotencyMiddleware>();
 
 app.UseAuthorization();
