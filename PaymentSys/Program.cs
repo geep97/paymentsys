@@ -1,5 +1,9 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using PaymentSys.Authentication;
 using PaymentSys.Data;
 using PaymentSys.Middleware;
 using PaymentSys.Options;
@@ -27,6 +31,48 @@ builder.Services.Configure<LedgerOptions>(
     builder.Configuration.GetSection(LedgerOptions.SectionName));
 builder.Services.Configure<IdempotencyOptions>(
     builder.Configuration.GetSection(IdempotencyOptions.SectionName));
+builder.Services.Configure<MerchantOptions>(
+    builder.Configuration.GetSection(MerchantOptions.SectionName));
+
+builder.Services.AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+        ApiKeyAuthenticationHandler.SchemeName,
+        _ => { });
+builder.Services.AddAuthorization();
+
+var rateLimitOptions = builder.Configuration
+    .GetSection(RateLimitOptions.SectionName)
+    .Get<RateLimitOptions>() ?? new RateLimitOptions();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("payments", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.Identity?.Name
+                ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimitOptions.PermitLimit,
+                Window = TimeSpan.FromSeconds(rateLimitOptions.WindowSeconds),
+                QueueLimit = 0
+            }));
+});
+
+var allowedOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? Array.Empty<string>();
+
+if (allowedOrigins.Length > 0)
+{
+    builder.Services.AddCors(options =>
+        options.AddPolicy("Default", policy =>
+            policy.WithOrigins(allowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod()));
+}
 
 builder.Services.AddScoped<IIdempotencyService, IdempotencyService>();
 
@@ -58,12 +104,25 @@ if (app.Environment.IsDevelopment())
     await LedgerAccountSeeder.SeedAsync(dbContext);
 }
 
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
 app.UseHttpsRedirection();
 
-app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseMiddleware<IdempotencyMiddleware>();
+if (allowedOrigins.Length > 0)
+{
+    app.UseCors("Default");
+}
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseRateLimiter();
+app.UseMiddleware<IdempotencyMiddleware>();
 
 app.MapControllers();
 
